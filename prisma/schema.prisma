@@ -1,0 +1,200 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  ADMIN
+  AUDITOR
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  FROZEN
+}
+
+enum AccountType {
+  CHECKING
+  SAVINGS
+  BUSINESS
+}
+
+enum AccountStatus {
+  ACTIVE
+  FROZEN
+  CLOSED
+}
+
+enum TransactionType {
+  TRANSFER
+  DEPOSIT
+  WITHDRAWAL
+  BILL_PAYMENT
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REVERSED
+}
+
+enum LedgerEntryType {
+  DEBIT
+  CREDIT
+}
+
+enum IdempotencyStatus {
+  PROCESSING
+  RESOLVED
+  REJECTED
+}
+
+model User {
+  id                 String       @id @default(uuid())
+  email              String       @unique
+  passwordHash       String
+  firstName          String
+  lastName           String
+  phone              String?
+  role               Role         @default(CUSTOMER)
+  status             UserStatus   @default(ACTIVE)
+  transactionPinHash String?
+  twoFactorSecret    String?
+  isTwoFactorEnabled Boolean      @default(false)
+  failedPinAttempts  Int          @default(0)
+  pinLockedUntil     DateTime?
+
+  accounts           Account[]
+  beneficiaries      Beneficiary[]
+  auditLogs          AuditLog[]
+  idempotencyKeys    IdempotencyKey[]
+
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@index([email])
+}
+
+model Account {
+  id                 String        @id @default(uuid())
+  accountNumber      String        @unique
+  iban               String        @unique
+  userId             String
+  accountType        AccountType   @default(CHECKING)
+  currency           String        @default("USD")
+  balance            Decimal       @default(0.0000) @db.Decimal(18, 4)
+  dailyTransferLimit Decimal       @default(10000.0000) @db.Decimal(18, 4)
+  status             AccountStatus @default(ACTIVE)
+
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sentTransactions   Transaction[] @relation("SourceAccount")
+  receivedTransactions Transaction[] @relation("DestinationAccount")
+  ledgerEntries      LedgerEntry[]
+
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([accountNumber])
+}
+
+model Transaction {
+  id                   String            @id @default(uuid())
+  reference            String            @unique
+  sourceAccountId      String?
+  destinationAccountId String?
+  type                 TransactionType
+  amount               Decimal           @db.Decimal(18, 4)
+  fee                  Decimal           @default(0.0000) @db.Decimal(18, 4)
+  currency             String            @default("USD")
+  status               TransactionStatus @default(PENDING)
+  description          String?
+  failureReason        String?
+  idempotencyKey       String?           @unique
+
+  sourceAccount        Account?          @relation("SourceAccount", fields: [sourceAccountId], references: [id])
+  destinationAccount   Account?          @relation("DestinationAccount", fields: [destinationAccountId], references: [id])
+  ledgerEntries        LedgerEntry[]
+
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  @@index([sourceAccountId])
+  @@index([destinationAccountId])
+  @@index([reference])
+  @@index([createdAt])
+}
+
+model LedgerEntry {
+  id            String          @id @default(uuid())
+  transactionId String
+  accountId     String
+  entryType     LedgerEntryType
+  amount        Decimal         @db.Decimal(18, 4)
+  balanceAfter  Decimal         @db.Decimal(18, 4)
+
+  transaction   Transaction     @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  account       Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  createdAt     DateTime        @default(now())
+
+  @@index([transactionId])
+  @@index([accountId])
+}
+
+model IdempotencyKey {
+  id                 String            @id @default(uuid())
+  key                String            @unique
+  userId             String
+  requestPath        String
+  requestHash        String
+  status             IdempotencyStatus @default(PROCESSING)
+  responseStatusCode Int?
+  responseBody       String?           @db.LongText
+  expiresAt          DateTime
+
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([key, userId])
+}
+
+model Beneficiary {
+  id            String   @id @default(uuid())
+  userId        String
+  name          String
+  accountNumber String
+  bankName      String   @default("Nova Bank")
+  nickname      String?
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  ipAddress String?
+  userAgent String?
+  details   String?  @db.Text
+  createdAt DateTime @default(now())
+
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}

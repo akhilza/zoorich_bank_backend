@@ -41,6 +41,15 @@ if (config.nodeEnv === 'development') {
 // Global IP Rate Limiter
 app.use(globalLimiter);
 
+// Root Route
+app.get('/', (req, res) => {
+  res.json({
+    message: 'Welcome to Zoorich Bank API!',
+    status: 'ONLINE',
+    health: '/api/v1/health'
+  });
+});
+
 // API Routes
 app.use('/api/v1', routes);
 

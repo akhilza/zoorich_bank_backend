@@ -77,6 +77,22 @@ export class AccountService {
   }
 
   /**
+   * Retrieves single account by ID with ownership check
+   */
+  static async getAccountById(userId: string, accountId: string) {
+    const account = await prisma.account.findFirst({
+      where: { id: accountId, userId },
+      include: {
+        cards: true,
+        loans: true,
+      },
+    });
+
+    if (!account) throw new Error('Account not found');
+    return account;
+  }
+
+  /**
    * Resolves recipient name by account number for confirmation before transferring
    */
   static async lookupRecipient(accountNumber: string) {
@@ -102,9 +118,17 @@ export class AccountService {
   }
 
   /**
-   * Retrieves paginated transaction history with ledger entries
+   * Retrieves paginated transaction history with ledger entries and filters
    */
-  static async getTransactionHistory(userId: string, accountId?: string, limit: number = 20, page: number = 1) {
+  static async getTransactionHistory(
+    userId: string,
+    accountId?: string,
+    limit: number = 20,
+    page: number = 1,
+    type?: string,
+    from?: string,
+    to?: string
+  ) {
     const userAccounts = await prisma.account.findMany({
       where: { userId },
       select: { id: true },
@@ -112,12 +136,22 @@ export class AccountService {
 
     const accountIds = accountId ? [accountId] : userAccounts.map((a) => a.id);
 
-    const whereClause: Prisma.TransactionWhereInput = {
+    const whereClause: any = {
       OR: [
         { sourceAccountId: { in: accountIds } },
         { destinationAccountId: { in: accountIds } },
       ],
     };
+
+    if (type) {
+      whereClause.type = type;
+    }
+
+    if (from || to) {
+      whereClause.createdAt = {};
+      if (from) whereClause.createdAt.gte = new Date(from);
+      if (to) whereClause.createdAt.lte = new Date(to);
+    }
 
     const [transactions, total] = await Promise.all([
       prisma.transaction.findMany({
@@ -145,6 +179,76 @@ export class AccountService {
         limit,
         totalPages: Math.ceil(total / limit),
       },
+    };
+  }
+
+  /**
+   * Generates periodic banking statement for an account or month
+   */
+  static async getStatement(userId: string, month?: string, accountId?: string) {
+    const accounts = await prisma.account.findMany({
+      where: accountId ? { id: accountId, userId } : { userId },
+    });
+
+    if (accounts.length === 0) throw new Error('No accounts found');
+    const targetAccountIds = accounts.map((a) => a.id);
+
+    let startDate: Date;
+    let endDate: Date;
+
+    if (month && /^\d{4}-\d{2}$/.test(month)) {
+      const [yearStr, monthStr] = month.split('-');
+      const year = parseInt(yearStr, 10);
+      const m = parseInt(monthStr, 10) - 1;
+      startDate = new Date(year, m, 1);
+      endDate = new Date(year, m + 1, 0, 23, 59, 59, 999);
+    } else {
+      const now = new Date();
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    }
+
+    const entries = await prisma.ledgerEntry.findMany({
+      where: {
+        accountId: { in: targetAccountIds },
+        createdAt: {
+          gte: startDate,
+          lte: endDate,
+        },
+      },
+      include: {
+        transaction: true,
+        account: {
+          select: { accountNumber: true, accountType: true, currency: true },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const totalDebits = entries
+      .filter((e) => e.entryType === 'DEBIT')
+      .reduce((sum, e) => sum + Number(e.amount), 0);
+
+    const totalCredits = entries
+      .filter((e) => e.entryType === 'CREDIT')
+      .reduce((sum, e) => sum + Number(e.amount), 0);
+
+    return {
+      period: {
+        from: startDate.toISOString().split('T')[0],
+        to: endDate.toISOString().split('T')[0],
+      },
+      accounts: accounts.map((a) => ({
+        id: a.id,
+        accountNumber: a.accountNumber,
+        currency: a.currency,
+        currentBalance: a.balance,
+      })),
+      totalDebits,
+      totalCredits,
+      netFlow: totalCredits - totalDebits,
+      entriesCount: entries.length,
+      entries,
     };
   }
 
@@ -185,4 +289,3 @@ export class AccountService {
     });
   }
 }
-

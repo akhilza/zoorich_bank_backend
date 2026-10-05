@@ -12,6 +12,15 @@ export class AccountController {
     }
   }
 
+  static async getAccountById(req: Request, res: Response, next: NextFunction) {
+    try {
+      const account = await AccountService.getAccountById(req.user!.id, req.params.id);
+      return res.json({ success: true, data: account });
+    } catch (error: any) {
+      return res.status(404).json({ success: false, message: error.message });
+    }
+  }
+
   static async createAccount(req: Request, res: Response, next: NextFunction) {
     try {
       const { accountType, currency, initialDeposit } = req.body;
@@ -42,14 +51,36 @@ export class AccountController {
 
   static async getTransactions(req: Request, res: Response, next: NextFunction) {
     try {
-      const accountId = req.query.accountId as string;
+      const accountId = (req.params.id || req.query.accountId) as string;
       const limit = parseInt(req.query.limit as string) || 20;
       const page = parseInt(req.query.page as string) || 1;
+      const type = req.query.type as string;
+      const from = req.query.from as string;
+      const to = req.query.to as string;
 
-      const result = await AccountService.getTransactionHistory(req.user!.id, accountId, limit, page);
-      return res.json({ success: true, data: result });
+      const result = await AccountService.getTransactionHistory(
+        req.user!.id,
+        accountId,
+        limit,
+        page,
+        type,
+        from,
+        to
+      );
+      return res.json({ success: true, ...result, data: result });
     } catch (error: any) {
       next(error);
+    }
+  }
+
+  static async getStatement(req: Request, res: Response, next: NextFunction) {
+    try {
+      const month = req.query.month as string;
+      const accountId = (req.params.id || req.query.accountId) as string;
+      const statement = await AccountService.getStatement(req.user!.id, month, accountId);
+      return res.json({ success: true, data: statement });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
     }
   }
 
@@ -103,4 +134,3 @@ export class AccountController {
     }
   }
 }
-

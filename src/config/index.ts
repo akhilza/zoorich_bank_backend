@@ -17,10 +17,23 @@ export const config = {
     refreshExpiresIn: '7d',
   },
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  twilio: {
+    accountSid: process.env.TWILIO_ACCOUNT_SID || '',
+    authToken: process.env.TWILIO_AUTH_TOKEN || '',
+    phoneNumber: process.env.TWILIO_PHONE_NUMBER || '',
+  },
   security: {
     maxPinAttempts: 3,
     pinLockoutMinutes: 15,
     maxDailyTransferAmount: 10000,
     transferVelocityLimitPerMinute: 5,
-  }
+  },
+  email: {
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: process.env.SMTP_SECURE === 'true',
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || '',
+    from: process.env.EMAIL_FROM || 'Zoorich Bank <no-reply@zoorichbank.com>',
+  },
 };

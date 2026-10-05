@@ -1,5 +1,6 @@
 export enum Role {
   CUSTOMER = 'CUSTOMER',
+  TELLER = 'TELLER',
   ADMIN = 'ADMIN',
   AUDITOR = 'AUDITOR',
 }
@@ -27,6 +28,8 @@ export enum TransactionType {
   DEPOSIT = 'DEPOSIT',
   WITHDRAWAL = 'WITHDRAWAL',
   BILL_PAYMENT = 'BILL_PAYMENT',
+  LOAN_DISBURSEMENT = 'LOAN_DISBURSEMENT',
+  LOAN_REPAYMENT = 'LOAN_REPAYMENT',
 }
 
 export enum TransactionStatus {
@@ -45,4 +48,30 @@ export enum IdempotencyStatus {
   PROCESSING = 'PROCESSING',
   RESOLVED = 'RESOLVED',
   REJECTED = 'REJECTED',
+}
+
+export enum KycStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+}
+
+export enum CardStatus {
+  ACTIVE = 'ACTIVE',
+  FROZEN = 'FROZEN',
+  CANCELLED = 'CANCELLED',
+}
+
+export enum LoanStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  ACTIVE = 'ACTIVE',
+  REPAID = 'REPAID',
+  REJECTED = 'REJECTED',
+}
+
+export enum PaymentFrequency {
+  DAILY = 'DAILY',
+  WEEKLY = 'WEEKLY',
+  MONTHLY = 'MONTHLY',
 }

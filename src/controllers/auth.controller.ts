@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuthService } from '../services/auth.service';
 import { SecurityService } from '../services/security.service';
+import { SmsService } from '../services/sms.service';
+import { EmailService } from '../services/email.service';
 import { prisma } from '../config/db';
 
 export class AuthController {
@@ -33,6 +35,14 @@ export class AuthController {
           ipAddress: req.ip,
           userAgent: req.get('user-agent'),
         });
+
+        // Dispatch Login Alert Email asynchronously
+        EmailService.sendLoginAlert(
+          result.user.email,
+          result.user.firstName,
+          req.ip,
+          req.get('user-agent')
+        ).catch((err) => console.warn('Could not dispatch login email:', err.message));
       }
       return res.status(200).json({
         success: true,
@@ -239,5 +249,61 @@ export class AuthController {
       next(error);
     }
   }
+
+  static async refresh(req: Request, res: Response, next: NextFunction) {
+    try {
+      const refreshToken = req.body.refreshToken || req.headers['x-refresh-token'];
+      if (!refreshToken) {
+        return res.status(400).json({ success: false, message: 'Refresh token is required' });
+      }
+      const tokens = await AuthService.refreshAccessToken(refreshToken as string);
+      return res.json({ success: true, data: { tokens } });
+    } catch (error: any) {
+      return res.status(401).json({ success: false, message: error.message });
+    }
+  }
+
+  static async logout(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (req.user?.id) {
+        await AuthService.logout(req.user.id);
+      }
+      return res.json({ success: true, message: 'Logged out successfully' });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  static async verifyEmail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await AuthService.verifyEmail(req.user?.id || req.body.userId, req.body.code);
+      return res.json(result);
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  static async testSms(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { to, message } = req.body;
+      if (!to) {
+        return res.status(400).json({ success: false, message: 'Recipient phone number is required (e.g. +919876543210)' });
+      }
+      const text = message || '🏦 Nova Bank Test Alert: Your Twilio SMS integration is working successfully!';
+      const result = await SmsService.sendSms(to, text);
+      return res.json({
+        success: true,
+        message: result.simulated ? 'SMS simulated (view server console)' : 'Real SMS dispatched via Twilio',
+        result,
+      });
+    } catch (error: any) {
+      return res.status(400).json({
+        success: false,
+        message: error.message || 'Failed to dispatch SMS',
+      });
+    }
+  }
 }
+
+
 

@@ -90,4 +90,14 @@ export class TransferController {
       });
     }
   }
+
+  static async getTransferById(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await TransferService.getTransferById(req.user!.id, req.params.id);
+      return res.json({ success: true, data });
+    } catch (error: any) {
+      return res.status(404).json({ success: false, message: error.message });
+    }
+  }
 }
+

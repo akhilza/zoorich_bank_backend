@@ -56,6 +56,16 @@ const updateProfileSchema = z.object({
 
 router.post('/register', authLimiter, validateRequest(registerSchema), AuthController.register);
 router.post('/login', authLimiter, validateRequest(loginSchema), AuthController.login);
+router.post('/refresh', AuthController.refresh);
+router.post('/logout', authenticateJwt, AuthController.logout);
+router.post('/verify-email', AuthController.verifyEmail);
+router.post('/test-sms', AuthController.testSms);
+
+
+// Spec MFA routes
+router.post('/mfa/setup', authenticateJwt, AuthController.generate2FA);
+router.post('/mfa/verify', authenticateJwt, validateRequest(verify2FASchema), AuthController.verifyAndEnable2FA);
+
 router.get('/profile', authenticateJwt, AuthController.getProfile);
 router.put('/profile', authenticateJwt, validateRequest(updateProfileSchema), AuthController.updateProfile);
 router.post('/pin/setup', authenticateJwt, validateRequest(setupPinSchema), AuthController.setupPin);
@@ -63,9 +73,12 @@ router.post('/2fa/generate', authenticateJwt, AuthController.generate2FA);
 router.post('/2fa/verify', authenticateJwt, validateRequest(verify2FASchema), AuthController.verifyAndEnable2FA);
 
 // Forgot Password / OTP Verification Routes
+router.post('/forgot-password', authLimiter, validateRequest(requestResetOtpSchema), AuthController.requestPasswordResetOtp);
 router.post('/forgot-password/request-otp', authLimiter, validateRequest(requestResetOtpSchema), AuthController.requestPasswordResetOtp);
 router.post('/forgot-password/verify-otp', authLimiter, validateRequest(verifyResetOtpSchema), AuthController.verifyPasswordResetOtp);
+router.post('/reset-password', authLimiter, validateRequest(resetPasswordSchema), AuthController.resetPassword);
 router.post('/forgot-password/reset', authLimiter, validateRequest(resetPasswordSchema), AuthController.resetPassword);
+
 
 export default router;
 

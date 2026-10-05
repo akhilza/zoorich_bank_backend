@@ -32,12 +32,23 @@ const withdrawSchema = z.object({
 router.use(authenticateJwt);
 
 router.post(
+  '/',
+  transferLimiter,
+  idempotencyMiddleware,
+  validateRequest(transferSchema),
+  TransferController.transfer
+);
+
+router.post(
   '/send',
   transferLimiter,
   idempotencyMiddleware,
   validateRequest(transferSchema),
   TransferController.transfer
 );
+
+router.get('/:id', TransferController.getTransferById);
+
 
 router.post(
   '/deposit',

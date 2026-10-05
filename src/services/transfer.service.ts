@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../config/db';
 import { acquireDistributedLock, releaseDistributedLock } from '../config/redis';
 import { SecurityService } from './security.service';
+import { EmailService } from './email.service';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface TransferParams {
@@ -216,6 +217,32 @@ export class TransferService {
         },
       });
 
+      // 1. Send Balance Deduct Email to Sender
+      if (sourceAccount.user?.email) {
+        EmailService.sendBalanceDebitedAlert(
+          sourceAccount.user.email,
+          sourceAccount.user.firstName,
+          amount,
+          sourceAccount.currency,
+          result.newSourceBalance,
+          description || `Transfer to ${destAccount.user.firstName} ${destAccount.user.lastName}`,
+          result.transaction.reference
+        ).catch((err) => console.warn('Could not dispatch sender debit email:', err.message));
+      }
+
+      // 2. Send Balance Credit Email to Recipient
+      if (destAccount.user?.email) {
+        EmailService.sendBalanceCreditedAlert(
+          destAccount.user.email,
+          destAccount.user.firstName,
+          amount,
+          destAccount.currency,
+          Number(destAccount.balance) + amount,
+          description || `Transfer received from ${sourceAccount.user.firstName} ${sourceAccount.user.lastName}`,
+          result.transaction.reference
+        ).catch((err) => console.warn('Could not dispatch recipient credit email:', err.message));
+      }
+
       return result;
     } finally {
       // Step 6: Always release the distributed lock
@@ -253,6 +280,7 @@ export class TransferService {
       const result = await prisma.$transaction(async (tx: any) => {
         const account = await tx.account.findUnique({
           where: { id: accountId },
+          include: { user: true },
         });
 
         if (!account || account.userId !== userId) {
@@ -305,6 +333,8 @@ export class TransferService {
         return {
           transaction: transactionRecord,
           newBalance: newBal,
+          user: account.user,
+          currency: account.currency,
         };
       });
 
@@ -316,9 +346,65 @@ export class TransferService {
         details: { reference: result.transaction.reference, amount, accountId },
       });
 
+      // Dispatch Email Notification based on Credit or Deduct
+      if (result.user?.email) {
+        if (type === 'DEPOSIT') {
+          EmailService.sendBalanceCreditedAlert(
+            result.user.email,
+            result.user.firstName,
+            amount,
+            result.currency,
+            result.newBalance,
+            description || 'Online Bank Deposit',
+            result.transaction.reference
+          ).catch((err) => console.warn('Could not dispatch deposit credit email:', err.message));
+        } else {
+          EmailService.sendBalanceDebitedAlert(
+            result.user.email,
+            result.user.firstName,
+            amount,
+            result.currency,
+            result.newBalance,
+            description || 'Online Bank Cash Withdrawal',
+            result.transaction.reference
+          ).catch((err) => console.warn('Could not dispatch withdrawal debit email:', err.message));
+        }
+      }
+
       return result;
     } finally {
       await releaseDistributedLock(lockKey, lockToken);
     }
   }
+
+  static async getTransferById(userId: string, transferId: string) {
+    const transaction = await prisma.transaction.findFirst({
+      where: {
+        id: transferId,
+        OR: [
+          { sourceAccount: { userId } },
+          { destinationAccount: { userId } },
+        ],
+      },
+      include: {
+        sourceAccount: {
+          select: {
+            accountNumber: true,
+            user: { select: { firstName: true, lastName: true } },
+          },
+        },
+        destinationAccount: {
+          select: {
+            accountNumber: true,
+            user: { select: { firstName: true, lastName: true } },
+          },
+        },
+        ledgerEntries: true,
+      },
+    });
+
+    if (!transaction) throw new Error('Transaction not found or unauthorized');
+    return transaction;
+  }
 }
+

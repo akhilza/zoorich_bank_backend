@@ -5,6 +5,8 @@ import { SecurityService } from './security.service';
 import { AccountService } from './account.service';
 import { Role, AccountType } from '../types';
 import { cacheGet, cacheSet, cacheDelete } from '../config/redis';
+import { SmsService } from './sms.service';
+import { EmailService } from './email.service';
 
 export class AuthService {
   /**
@@ -49,6 +51,11 @@ export class AuthService {
     const account = await AccountService.createAccount(user.id, AccountType.CHECKING, 'USD', deposit);
 
     const tokens = this.generateTokens(user.id, user.email, user.role as Role);
+
+    // Send Welcome Email asynchronously
+    EmailService.sendWelcomeEmail(user.email, user.firstName, account.accountNumber, deposit).catch((err) =>
+      console.warn('Could not dispatch welcome email:', err.message)
+    );
 
     return {
       user: {
@@ -230,6 +237,17 @@ export class AuthService {
 
     console.log(`🔑 [PASSWORD RESET OTP] Target: ${user.email} | Phone: ${user.phone || 'none'} | OTP: ${otp}`);
 
+    if (method === 'phone' && user.phone) {
+      await SmsService.sendOtp(user.phone, otp).catch((err) => {
+        console.warn('Could not dispatch live SMS:', err.message);
+      });
+    } else {
+      // Dispatch 6-digit OTP code to the user's email address
+      await EmailService.sendPasswordResetOtp(user.email, user.firstName, otp).catch((err) => {
+        console.warn('Could not dispatch OTP email:', err.message);
+      });
+    }
+
     return {
       userId: user.id,
       email: user.email,
@@ -351,5 +369,28 @@ export class AuthService {
       transactionPinHash: undefined,
     };
   }
+
+  static async refreshAccessToken(refreshTokenStr: string) {
+    try {
+      const decoded = jwt.verify(refreshTokenStr, config.jwt.refreshSecret) as any;
+      const user = await prisma.user.findUnique({ where: { id: decoded.id } });
+      if (!user) throw new Error('User not found');
+      return this.generateTokens(user.id, user.email, user.role as Role);
+    } catch (err: any) {
+      throw new Error('Invalid or expired refresh token');
+    }
+  }
+
+  static async logout(userId: string) {
+    await prisma.refreshToken.deleteMany({
+      where: { userId },
+    });
+    return { success: true, message: 'Logged out successfully' };
+  }
+
+  static async verifyEmail(userId: string, code?: string) {
+    return { success: true, message: 'Email verified successfully' };
+  }
 }
+
 

@@ -9,6 +9,7 @@ datasource db {
 
 enum Role {
   CUSTOMER
+  TELLER
   ADMIN
   AUDITOR
 }
@@ -36,6 +37,8 @@ enum TransactionType {
   DEPOSIT
   WITHDRAWAL
   BILL_PAYMENT
+  LOAN_DISBURSEMENT
+  LOAN_REPAYMENT
 }
 
 enum TransactionStatus {
@@ -54,6 +57,61 @@ enum IdempotencyStatus {
   PROCESSING
   RESOLVED
   REJECTED
+}
+
+enum KycStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum KycDocumentType {
+  PASSPORT
+  NATIONAL_ID
+  DRIVERS_LICENSE
+}
+
+enum CardStatus {
+  ACTIVE
+  FROZEN
+  CANCELLED
+}
+
+enum LoanStatus {
+  PENDING
+  APPROVED
+  ACTIVE
+  REPAID
+  REJECTED
+}
+
+enum InstallmentStatus {
+  PENDING
+  PAID
+  OVERDUE
+}
+
+enum PaymentFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum ScheduledPaymentStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum AlertStatus {
+  OPEN
+  RESOLVED
 }
 
 model User {
@@ -75,11 +133,29 @@ model User {
   beneficiaries      Beneficiary[]
   auditLogs          AuditLog[]
   idempotencyKeys    IdempotencyKey[]
+  kycDocuments       KycDocument[]
+  loans              Loan[]
+  scheduledPayments  ScheduledPayment[]
+  refreshTokens      RefreshToken[]
+  fraudAlerts        FraudAlert[]
 
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
   @@index([email])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Account {
@@ -97,6 +173,10 @@ model Account {
   sentTransactions   Transaction[] @relation("SourceAccount")
   receivedTransactions Transaction[] @relation("DestinationAccount")
   ledgerEntries      LedgerEntry[]
+  cards              Card[]
+  loans              Loan[]
+  scheduledPayments  ScheduledPayment[]
+  fraudAlerts        FraudAlert[]
 
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
@@ -147,6 +227,138 @@ model LedgerEntry {
 
   @@index([transactionId])
   @@index([accountId])
+  @@index([accountId, createdAt])
+}
+
+model Card {
+  id             String     @id @default(uuid())
+  accountId      String
+  cardNumber     String     @unique
+  cardToken      String     @unique
+  last4          String
+  expiryMonth    Int
+  expiryYear     Int
+  cvv            String
+  cardLimit      Decimal    @default(5000.0000) @db.Decimal(18, 4)
+  spentThisMonth Decimal    @default(0.0000) @db.Decimal(18, 4)
+  status         CardStatus @default(ACTIVE)
+
+  account        Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([accountId])
+}
+
+model Loan {
+  id               String            @id @default(uuid())
+  userId           String
+  accountId        String
+  principal        Decimal           @db.Decimal(18, 4)
+  interestRate     Decimal           @db.Decimal(5, 2)
+  tenureMonths     Int
+  monthlyEmi       Decimal           @db.Decimal(18, 4)
+  totalRepayable   Decimal           @db.Decimal(18, 4)
+  remainingBalance Decimal           @db.Decimal(18, 4)
+  purpose          String
+  status           LoanStatus        @default(PENDING)
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account          Account           @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  installments     LoanInstallment[]
+
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([userId])
+  @@index([accountId])
+}
+
+model LoanInstallment {
+  id                String            @id @default(uuid())
+  loanId            String
+  installmentNumber Int
+  dueDate           DateTime
+  amount            Decimal           @db.Decimal(18, 4)
+  status            InstallmentStatus @default(PENDING)
+  paidAt            DateTime?
+
+  loan              Loan              @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  createdAt         DateTime          @default(now())
+
+  @@index([loanId])
+}
+
+model ScheduledPayment {
+  id                       String                 @id @default(uuid())
+  userId                   String
+  sourceAccountId          String
+  destinationAccountNumber String
+  amount                   Decimal                @db.Decimal(18, 4)
+  frequency                PaymentFrequency       @default(MONTHLY)
+  nextRunDate              DateTime
+  description              String?
+  status                   ScheduledPaymentStatus @default(ACTIVE)
+
+  user                     User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceAccount            Account                @relation(fields: [sourceAccountId], references: [id], onDelete: Cascade)
+
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+
+  @@index([userId])
+  @@index([sourceAccountId])
+}
+
+model KycDocument {
+  id          String          @id @default(uuid())
+  userId      String
+  type        KycDocumentType @default(PASSPORT)
+  fileUrl     String          @db.Text
+  documentNum String?
+  status      KycStatus       @default(PENDING)
+  notes       String?
+
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model FraudAlert {
+  id         String        @id @default(uuid())
+  userId     String?
+  accountId  String?
+  severity   AlertSeverity @default(MEDIUM)
+  reason     String
+  status     AlertStatus   @default(OPEN)
+  flaggedAt  DateTime      @default(now())
+
+  user       User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  account    Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Beneficiary {
+  id            String   @id @default(uuid())
+  userId        String
+  name          String
+  accountNumber String
+  bankName      String   @default("Nova Bank")
+  nickname      String?
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
 }
 
 model IdempotencyKey {
@@ -166,21 +378,6 @@ model IdempotencyKey {
   updatedAt          DateTime          @updatedAt
 
   @@index([key, userId])
-}
-
-model Beneficiary {
-  id            String   @id @default(uuid())
-  userId        String
-  name          String
-  accountNumber String
-  bankName      String   @default("Nova Bank")
-  nickname      String?
-
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  createdAt     DateTime @default(now())
-
-  @@index([userId])
 }
 
 model AuditLog {
